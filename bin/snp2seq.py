@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# This script originates with Murat Ozturk.
 
 from __future__ import print_function
 import vcf
