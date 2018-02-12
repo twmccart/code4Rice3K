@@ -1,0 +1,157 @@
+#!/bin/bash
+
+## This script is used to calculate synonymous and
+## non-synonymous SNPs in the rice genome using the
+## popGenome package
+
+shopt -s extglob
+
+# Set the install directory
+#
+installdir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+reference=${installdir}/../reference
+annotation=${installdir}/../annotation
+workingdir="$( pwd )"
+outputdir=${workingdir}
+
+# Default option settings:
+#
+
+# Help menu
+function usage() {
+	echo "
+		Code4Rice3K Help Section:
+		=========================
+		Usage: $0 -i <vcffile> -r <reference> -g <gff3file> -o <outputpath>
+		Example: $0 -i ~/myvcffile -r reference/ -g annotation/ -o ~/Downloads/
+		
+		1) Mandatory options:
+		-i|--infile <string>		:	The name of the VCF file to analyze
+		-r|--reference <path>		:	Location of reference genome	
+		-g|--gff3file <path>		:	Location of annotation file
+		-o|--outputdir <path>		:	Directory path for the output files
+		--colnum <int>			:	The number of SNP chunks to process at a time (min=10000)
+		--tid <string>			:	The chromosome identifier
+		--frompos <int>			:	A number indicating the starting nucleotide position
+		--topos <int>			:  	A number indicating the end nucleotide position 
+
+		-h|--help			:	Disply this help message
+		
+		Note1: The number given to "colnum" depends on the avaialble ram, size of the specified region, and the number
+	        of samples. To analyze a whole chromosome for 200 samples, a value of at least 100000 is recommended. 
+		
+		Note2: The chromosome identifier "tid" must be the same for the VCF, reference FASTA, and anntation GFF# files.
+		
+		Note3: The chromosome identifiers and their coordinates for the rice genome files used in this workflow are as follows:
+			chr01      1 - 43270923
+  			chr02      1 - 35937250
+			chr03      1 - 36413819
+			chr04      1 - 35502694
+			chr05      1 - 29958434
+			chr06      1 - 31248787
+			chr07      1 - 29697621
+			chr08      1 - 28443022
+			chr09      1 - 23012720
+			chr10      1 - 23207287
+			chr11      1 - 29021106
+			chr12      1 - 27531856
+	"
+}
+
+if [ -z "$*" ]; then usage ; exit 1 ; fi
+
+
+# Parsing command line arguments:
+OPTIONS=`getopt -o i:r:g:o:h --long infile:,reference:,gff3file:,outputdir:,colnum:,tid:,frompos:,topos:,help -n 'code4Rice3K error' -- "$@"` 
+if [ $? != 0 ] ; then echo " " ; echo "Could not parse options (see above) ..." >&2 ; usage ; exit 1 ; fi
+
+eval set -- "$OPTIONS"
+
+while true ; do
+	case "$1" in
+		-i|--infile)
+			case "$2" in
+				-*) echo "Please provide a valid VCF file using -i"; usage; exit 1 ;;
+				*) vcf=$2 ; shift 2 ;;
+			esac ;;
+
+		-r|--reference)
+			case "$2" in
+				-*) echo "Please provide the location of the reference genome directory when using -r"; usage; exit 1 ;;
+				*) reference=$2 ; shift 2 ;;
+			esac ;;
+
+		-g|--gff3file)
+			case "$2" in
+				-*) echo "Please provide a valid GFF3 annotation file when using -g"; usage; exit 1 ;;
+				*) annotation=$2 ; shift 2 ;;
+			esac ;;
+
+		-o|--outputdir)
+			case "$2" in
+				-*) echo "Please designate an output directory when using -o"; usage; exit 1 ;;
+				*) outputdir=$2 ; shift 2 ;;
+			esac ;;
+
+		--colnum)
+			case "$" in
+				-*) echo "Please designate a valid value for colnum"; usage; exit 1 ;;
+				*) colnum=$2 ; shift 2 ;;
+			esac ;;
+
+		--tid)
+			case "$2" in
+				-*) echo "Please provide a valid chromosome identifier"; usage; exit 1 ;;
+				*) tid=$2 ; shift 2 ;;
+			esac ;;
+
+		--frompos)
+			case "$2" in
+				-*) echo "Please designate the starting nucleotide position"; usage; exit 1 ;;
+				*) frompos=$2 ; shift 2 ;;
+			esac ;;
+
+		--topos)
+			case "$2" in
+				-*) echo "Please designate the end nucleotide position"; usage; exit 1 ;;
+				*) topos=$2 ; shift 2 ;;
+			esac ;;
+
+		-h|--help)
+			usage; exit 1 ;;
+
+		--) shift ; break ;;
+
+		*) echo "Unknown option or error" ; usage; exit 1 ;;
+	esac
+done
+
+if [ ! -d "$outputdir" ] ; then
+	echo ""
+	echo "... new output directory $outputdir will be created in your working directory."
+	mkdir $outputdir
+fi
+
+cd $outputdir
+mkdir -p snpanalysisreports
+
+echo ""
+echo "=============================================================================="
+echo " Calculating SNPs ... "
+echo "=============================================================================="
+echo ""
+
+#cd $outputdir
+#mkdir -p snpanalysisreports
+
+cd $workingdir
+Rscript ${installdir}/analyzesnps.r $vcf $reference $annotation ${outputdir}/snpanalysisreports/report.${tid} $colnum $tid $frompos $topos
+
+echo ""
+echo "=============================================================================="
+echo " SNPs report generated "
+echo "=============================================================================="
+echo ""
+
+exit
+
