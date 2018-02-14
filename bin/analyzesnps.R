@@ -65,10 +65,6 @@ end <- sapply(genes.loc, function(x)
 length <- end - start + 1
 pos.data <- cbind(start, end)
 
-# gff <- read.delim("gff/IRGSP-1.0.gff3", header=F, comment.char="#",
-#                   row.names=NULL)
-# gff.info <- subset(gff2, V1 == "chr01" & V3 == "gene")
-
 # Extracting info from the gff3 file:
 gff.attr <- get.feature.names(genes, gff.file=gff.file, chr=t.id)
 gff.attr.split <- strsplit(gff.attr, "[=;]+")
