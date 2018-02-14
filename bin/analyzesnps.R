@@ -78,5 +78,5 @@ row.num <- rep(1:genesSize)
 res <- data.frame(gene.ID, pos.data, length, syn, nonsyn, ka.ks, feature, row.names=row.num)
 write.table(res, file=out.file, sep="\t", row.names=FALSE)
 
-#-----------------------------------------------------------Finn
+#------------------------------------------------------------Fin
 
