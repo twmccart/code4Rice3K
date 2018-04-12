@@ -123,7 +123,7 @@ while true ; do
 			esac ;;
 
 		--nt)
-			case $2 in
+			case "$2" in
 				-*) echo "Please provide a valid integer for number of data threads when using -nt"; usage; exit 1 ;;
 				*) nt=$2 ; shift 2 ;;
 			esac ;;
