@@ -94,7 +94,7 @@ while true ; do
 			esac ;;
 
 		--colnum)
-			case "$" in
+			case "$2" in
 				-*) echo "Please designate a valid value for colnum"; usage; exit 1 ;;
 				*) colnum=$2 ; shift 2 ;;
 			esac ;;
@@ -145,7 +145,7 @@ echo ""
 #mkdir -p snpanalysisreports
 
 cd $workingdir
-Rscript ${installdir}/analyzesnps.r $vcf $reference $annotation ${outputdir}/snpanalysisreports/report.${tid} $colnum $tid $frompos $topos
+Rscript ${installdir}/analyzesnps.R $vcf $reference $annotation ${outputdir}/snpanalysisreports/report.${tid} $colnum $tid $frompos $topos
 
 echo ""
 echo "=============================================================================="
