@@ -34,25 +34,18 @@ to.pos <- as.numeric(args[8])
 # Code for popGenome package
 
 library(PopGenome)
+library(GenomicRanges)
+library(seqinr)
 
 GENOME.class <- readVCF(vcf.file, numcols=num.cols, tid=t.id, frompos=from.pos, topos=to.pos,
 		       	include.unknown=TRUE, approx=FALSE, gffpath=gff.file)
 
 GENOME.class <- set.synnonsyn(GENOME.class, ref.chr=ref.file, save.codons=TRUE)
 
+# Splitting data into "genes" regions:
 genes <- splitting.data(GENOME.class, subsites = "gene")
 genes.size <- length(genes@region.names)
 genes.loc <- genes@region.names
-
-syn <- rep(NA, genes.size)
-nonsyn <- rep(NA, genes.size)
-ka_ks <- rep(NA, genes.size)
-for (i in 1:genes.size) {
-  syn[i] <- sum(genes@region.data@synonymous[[i]]==1,na.rm=TRUE)
-  nonsyn[i] <- sum(genes@region.data@synonymous[[i]]==0,na.rm=TRUE)
-  ka_ks[i] <- nonsyn[i]/syn[i]
-}
-ka.ks <- round(ka_ks, digits=2)
 
 # Obtaining gene coordinates:
 start <- sapply(genes.loc, function(x)
@@ -65,18 +58,52 @@ end <- sapply(genes.loc, function(x)
 length <- end - start + 1
 pos.data <- cbind(start, end)
 
+# Calculate syn, non-syn, and Mu for each gene: 
+syn <- rep(NA, genes.size)
+nonsyn <- rep(NA, genes.size)
+ka_ks <- rep(NA, genes.size)
+m_u <- rep(NA, genes.size)
+for (i in 1:genes.size) {
+  syn[i] <- sum(genes@region.data@synonymous[[i]]==1,na.rm=TRUE)
+  nonsyn[i] <- sum(genes@region.data@synonymous[[i]]==0,na.rm=TRUE)
+  ka_ks[i] <- nonsyn[i]/syn[i]
+  m_u[i] <- ((syn[i]+nonsyn[i]) * 1000) / length[i]
+}
+ka.ks <- round(ka_ks, digits=2)
+mu <- round(m_u, digits=2)
+
 # Extracting info from the gff3 file:
 gff.attr <- get.feature.names(genes, gff.file=gff.file, chr=t.id)
 gff.attr.split <- strsplit(gff.attr, "[=;]+")
 feature <- sapply(gff.attr.split, "[[", 12)
 gene.ID <- sapply(gff.attr.split, "[[", 6)
-#
+
+# Extracting GC contents for the targeted genes:
+gr <- GRanges(
+	      seqnames = rep(t.id, genes.size),
+	      ranges = IRanges(start=start, end=end)
+	      )
+
+chrom.list <- c("chr01", "chr02", "chr03", "chr04", "chr05", "chr06",
+		"chr07", "chr08", "chr09", "chr10", "chr11", "chr12")
+idx <- match(t.id, chrom.list)
+fas <- read.fasta(file=ref.file)[[idx]]
+
+extract.seqs <- lapply(gr, function(x) {
+    if (as.character(strand(x)) == '-') {
+        comp(fas[end(x):start(x)])
+      } else {
+	 fas[start(x):end(x)]}})
+
+gc <- lapply(extract.seqs, function(x)
+{ round(GC(x), digits=2) })
+GC <- unlist(gc) 
 
 #---------------------------------------------------------------
 ## Compiling results:
-row.num <- rep(1:genesSize)
-res <- data.frame(gene.ID, pos.data, length, syn, nonsyn, ka.ks, feature, row.names=row.num)
+row.num <- rep(1:genes.size)
+res <- data.frame(gene.ID, pos.data, length, syn, nonsyn, ka.ks, GC, mu, feature, row.names=row.num)
 write.table(res, file=out.file, sep="\t", row.names=FALSE)
 
-#------------------------------------------------------------Fin
-
+#---------------------------------------------------------------
+#
