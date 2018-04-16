@@ -40,7 +40,7 @@ function usage() {
 		Note1: The number given to "colnum" depends on the avaialble ram, size of the specified region, and the number
 	        of samples. To analyze a whole chromosome for 200 samples, a value of at least 100000 is recommended. 
 		
-		Note2: The chromosome identifier "tid" must be the same for the VCF, reference FASTA, and anntation GFF# files.
+		Note2: The chromosome identifier "tid" must be the same for the VCF, reference FASTA, and anntation GFF3 files.
 		
 		Note3: The chromosome identifiers and their coordinates for the rice genome files used in this workflow are as follows:
 			chr01      1 - 43270923
