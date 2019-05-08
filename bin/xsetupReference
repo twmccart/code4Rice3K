@@ -1,0 +1,50 @@
+#!/bin/bash
+## This is the install file for code4Rice3K
+shopt -s extglob
+
+PICARD=/usr/local/src/NGS_DIR/Picard/picard.jar
+
+# Create work environment
+maindir="$( cd "$( dirname "${BASH_SOURCE[0]}" )"/../ && pwd )"
+
+cd $maindir
+mkdir -p reference annotation
+
+reference=${maindir}/reference
+annotation=${maindir}/annotation
+
+# Download reference sequence
+cd $reference
+echo "Downloading reference fasta"
+wget -qO- "http://rapdb.dna.affrc.go.jp/download/archive/irgsp1/IRGSP-1.0_genome.fasta.gz" | gunzip - > IRGSP-1.0_genome.fasta
+
+# Prepare faidx index and dict of reference genome
+echo "Indexing reference"
+samtools faidx IRGSP-1.0_genome.fasta
+rm -f IRGSP-1.0_genome.dict
+java -jar ${PICARD} CreateSequenceDictionary R=IRGSP-1.0_genome.fasta O=IRGSP-1.0_genome.dict
+
+# Download gff3 annotation file
+cd $annotation
+echo "Downloading GFF3 annotation file"
+wget -qO- "ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/001/433/935/GCF_001433935.1_IRGSP-1.0/GCF_001433935.1_IRGSP-1.0_genomic.gff.gz" | gunzip - > IRGSP-1.0.gff3
+
+# Modify the chromosome identifiers
+echo "Modifying the GFF file"
+sed -i 's/NC_029256\.1/chr01/g' IRGSP-1.0.gff3
+sed -i 's/NC_029257\.1/chr02/g' IRGSP-1.0.gff3
+sed -i 's/NC_029258\.1/chr03/g' IRGSP-1.0.gff3
+sed -i 's/NC_029259\.1/chr04/g' IRGSP-1.0.gff3
+sed -i 's/NC_029260\.1/chr05/g' IRGSP-1.0.gff3
+sed -i 's/NC_029261\.1/chr06/g' IRGSP-1.0.gff3
+sed -i 's/NC_029262\.1/chr07/g' IRGSP-1.0.gff3
+sed -i 's/NC_029263\.1/chr08/g' IRGSP-1.0.gff3
+sed -i 's/NC_029264\.1/chr09/g' IRGSP-1.0.gff3
+sed -i 's/NC_029265\.1/chr10/g' IRGSP-1.0.gff3
+sed -i 's/NC_029266\.1/chr11/g' IRGSP-1.0.gff3
+sed -i 's/NC_029267\.1/chr12/g' IRGSP-1.0.gff3
+sed -i "s/'/PRIME/g" IRGSP-1.0.gff3
+
+cd $maindir
+echo "Done."
+
