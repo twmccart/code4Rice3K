@@ -1,0 +1,199 @@
+#!/bin/bash
+
+## This script takes as its input argument the accession of a cultivar from the
+## 3K Rice Genome project and produces a VCF file containing all of the called
+## sites from that cultivar. It also produces VCF files for each chromosome of
+## the cultivar, with indels, Multiple Nucleotide Polymorphisms, and uncalled or
+## heterozygous sites removed.
+
+shopt -s extglob
+
+# Set the install directory (the below assumes that the code4Rice3K scripts
+# are in the same directory as the code4Rice3K.conf file):
+#
+installdir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+configfile=${installdir}/code4Rice3K.conf
+reference=${installdir}/../reference
+workingdir="$( pwd )"
+bamfiledir=${workingdir}/bamfiledir
+outputdir=${workingdir}
+
+
+# Default option settings:
+#
+threads=4
+
+# Help menu
+function usage() {
+	echo "
+		Code4Rice3K Help Section:
+		=========================
+
+		Usage: $0 -c <configfile> -i <cultivar> -o <path>
+		Example: $0 -c ~/Home/MyFiles/myconfigfile.conf -i sample-1 -o ~/Downloads/
+		
+		1) Required options:
+		-i|--infile <string>		:	The name of the chosen rice cultivar
+		-c|--configfile <path>		:	This is the config file for code4Rice3K workflow
+		-b|--bamfiledir <path>		:	location of bam files
+		-r|--reference <path>		:	location of reference genome
+		-i|--infile <file>		:	A text file containing a list of cultivar names to process
+		-g|--gff			:	An annotation file in GFF3 format
+		
+		2) Optional setings:
+		-o|--outputdir <path>		:	Directory path for the output files
+		-t|--threads <int>		:	How many threads to use (default=4)
+		-h|--help			:	Disply this help message
+	"
+}
+
+if [ -z "$*" ]; then usage ; exit 1 ; fi
+
+
+function readconfigfile {
+if [ ! -e "$1" ] ; then
+	echo ""
+	echo "Fatal error: code4Rice3K config file $1 does not exist. Please check"
+	exit 1
+fi
+gatk=`grep '^gatk=' "$1" | awk -F"=" '{print $2}'` 
+haplotypecallerOptions=`grep '^haplotypecallerOptions=' "$1" | awk -F"=" '{print $2}'` 
+}
+
+
+# Parsing command line arguments:
+OPTIONS=`getopt -o c:b:r:i:g:o:t:h --long configfile:,bamfiledir:,reference:,infile:,gff:,outputdir:,threads:,help -n 'code4Rice3K error' -- "$@"` 
+if [ $? != 0 ] ; then echo " " ; echo "Could not parse options (see above) ..." >&2 ; usage ; exit 1 ; fi
+
+eval set -- "$OPTIONS"
+
+while true ; do
+	case "$1" in
+		-c|--configfile)
+			case "$2" in
+				-*) echo "Please provide a code4Rice3K configfile when using -c"; usage; exit 1 ;;
+				*) configfile=$2 ; shift 2 ;;
+			esac ;;
+
+		-b|--bamfiledir)
+			case "$2" in
+				-*) echo "Please provide the location of the bamfile directory when using -b"; usage; exit 1 ;;
+				*) bamfiledir=$2 ; shift 2 ;;
+			esac ;;
+
+		-r|--reference)
+			case "$2" in
+				-*) echo "Please provide the location of the reference genome directory when using -r"; usage; exit 1 ;;
+				*) reference=$2 ; shift 2 ;;
+			esac ;;
+
+		-i|--inputlist)
+			case "$2" in
+				-*) echo "Please provide a list with valid cultivar names when using -i"; usage; exit 1 ;;
+				*) inputlist=$2 ; filename=${inputlist##*/} ; readarray -t cultivarlist < $inputlist ; shift 2 ;;
+			esac ;;
+
+		-g|--gff)
+			case "$2" in
+				-*) echo "Please provide the location of the annotation directory when using -g"; usage; exit 1 ;;
+				*) gff=$2 ; shift 2 ;;
+			esac ;;
+
+		-o|--outputdir)
+			case "$2" in
+				-*) echo "Please designate an output directory when using -o"; usage; exit 1 ;;
+				*) outputdir=$2 ; shift 2 ;;
+			esac ;;
+
+		-t|--threads)
+			case "$2" in
+				-*) echo "Please use a valid integer when using -t"; usage; exit 1 ;;
+				*) threads=$2 ; shift 2 ;;
+			esac ;;
+
+		-h|--help)
+			usage; exit 1 ;;
+
+		--) shift ; break ;;
+
+		*) echo "Unknown option or error" ; usage; exit 1 ;;
+	esac
+done
+
+
+readconfigfile $configfile
+
+
+# Step 0
+#
+echo ""
+echo "=============================================================================="
+echo " Setting up workflow ..."
+echo "=============================================================================="
+echo ""
+
+if [ ! -d "$outputdir" ] ; then
+        echo ""
+        echo "... new output directory $outputdir will be created in your working directory."
+	mkdir $outputdir
+fi
+
+cd $workingdir
+mkdir -p Temp
+
+# Creating a genomic dictionary for the reference file
+if [[ ! -e ${reference}/IRGSP-1.0_genome.dict ]]; then
+	$gatk CreateSequenceDictionary R=${reference}/IRGSP-1.0_genome.fasta
+fi
+
+cd $outputdir
+mkdir -p gvcffiles
+
+# Step 1
+# BAM files of sequence read mapping
+# https://aws.amazon.com/public-datasets/3000-rice-genome/
+echo ""
+echo "=============================================================================="
+echo " Step 1 Downloading BAM file for ${cultivar} ..."
+echo "=============================================================================="
+echo ""
+
+cd ${workingdir}
+cd ${bamfiledir}
+
+if [[ ! -e ${cultivar}.realigned.bam.bai ]]; then
+	wget -qO- https://s3.amazonaws.com/3kricegenome/Nipponbare/${cultivar}.realigned.bam && samtools index ${cultivar}.realigned.bam
+fi
+
+echo "BAM file downloaded"
+echo ""
+
+
+echo ""
+echo "=============================================================================="
+echo "Step 2 Generating VCF file ..."
+echo "=============================================================================="
+echo ""
+
+# The GATK tool Haplotype Caller is used to compare the bam file with the reference genome and generate a gvcf file
+	
+cd ${workingdir}
+
+# Creating an interval list for gene coordinates from the gff file
+# SNPs will be called only for those intervals
+awk ' !/^#/ { if($3 ~ "gene") print } ' ${gff}/IRGSP-1.0.gff3 | awk ' { print $1 ":" $4 "-" $5 } ' > intervals.list
+
+echo "$gatk ${haplotypecallerOptions} -R ${reference}/IRGSP-1.0_genome.fasta -I $bamfiledir/${cultivar}.realigned.bam -O ${outputdir}/gvcffiles/${cultivar}.g.vcf.gz"
+
+$gatk ${haplotypecallerOptions} -R ${reference}/IRGSP-1.0_genome.fasta -I ${bamfiledir}/${cultivar}.realigned.bam -O ${outputdir}/gvcffiles/${cultivar}.g.vcf.gz -L ${workingdir}/intervals.list --native-pair-hmm-threads ${threads} --tmp-dir=${workingdir}/Temp
+
+echo "GVCF file created"
+echo ""
+
+echo ""
+echo "=============================================================================="
+echo " Finished generating GVCF files"
+echo "=============================================================================="
+echo ""
+
+exit
