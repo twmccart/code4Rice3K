@@ -2,7 +2,7 @@
 ## This is the install file for code4Rice3K
 shopt -s extglob
 
-PICARD=/usr/local/src/NGS_DIR/Picard/picard.jar
+#PICARD=/usr/local/src/NGS_DIR/Picard/picard.jar
 
 # Create work environment
 maindir="$( cd "$( dirname "${BASH_SOURCE[0]}" )"/../ && pwd )"
@@ -21,8 +21,9 @@ wget -qO- "http://rapdb.dna.affrc.go.jp/download/archive/irgsp1/IRGSP-1.0_genome
 # Prepare faidx index and dict of reference genome
 echo "Indexing reference"
 samtools faidx IRGSP-1.0_genome.fasta
-rm -f IRGSP-1.0_genome.dict
-java -jar ${PICARD} CreateSequenceDictionary R=IRGSP-1.0_genome.fasta O=IRGSP-1.0_genome.dict
+#rm -f IRGSP-1.0_genome.dict
+#java -jar ${PICARD} CreateSequenceDictionary R=IRGSP-1.0_genome.fasta O=IRGSP-1.0_genome.dict
+
 
 # Download gff3 annotation file
 cd $annotation
