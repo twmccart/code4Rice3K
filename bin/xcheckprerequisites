@@ -3,23 +3,25 @@
 # ... this script will check for prerequisites for code4Rice3K
 
 
-function check_prereq() {
+function check-prereq() {
         echo "Checking for required software"
         error=""
-        samtools --help >/dev/null 2>&1 || (echo "could not find samtools, please install" >&2 && error="true")
-        bcftools --help >/dev/null 2>&1 || (echo "could not find bcftools, please install" >&2 && error="true")
-        vcftools --help >/dev/null 2>&1 || (echo "could not find vcftools, please install" >&2 && error="true")
-        java -version >/dev/null 2>&1 || (echo "could not find Java, please install" >&2 && error="true")
-        python --version >/dev/null 2>&1 || (echo "could not find Python 2.7, please install" >&2 && error="true")
-	R --version >/dev/null 2>&1 || (echo "could not find R 3.4.2, please install" >&2 && error="true")
-        raxmlHPC-PTHREADS -h >/dev/null 2>&1 || (echo "could not find raxml, please install" >&2 && error="true")
+        samtools --help >/dev/null 2>&1 || (echo "Could not find samtools, please install" >&2 && error="true")
+        bcftools --help >/dev/null 2>&1 || (echo "Could not find bcftools, please install" >&2 && error="true")
+        vcftools --help >/dev/null 2>&1 || (echo "Could not find vcftools, please install" >&2 && error="true")
+        java -version >/dev/null 2>&1 || (echo "Could not find Java, please install" >&2 && error="true")
+        python --version >/dev/null 2>&1 || (echo "Could not find Python 2.7, please install" >&2 && error="true")
+	R --version >/dev/null 2>&1 || (echo "Could not find R 3.4.2, please install" >&2 && error="true")
+        raxmlHPC-PTHREADS -h >/dev/null 2>&1 || (echo "Could not find raxml, please install" >&2 && error="true")
         # Tabix exits with error even if installed, so it needs a fancier test
-        set +e #Temporarily disable strict error mode
+        set +e # Temporarily disable strict error mode
         tabix --help >/dev/null 2>&1
-        if [[ "$?" != "1" ]]; then #If tabix is not installed the error status should be 127
-                echo "could not find tabix, please install" >&2
+        if [[ "$?" != "1" ]]; then # If tabix is not installed the error status should be 127
+                echo "Could not find tabix, please install" >&2
                 error="true"
         fi
+
+	#TODO checkpoint to echo only when there is no error.
 	echo "Softwares are installed"
         set -e
 
@@ -43,8 +45,8 @@ function check_prereq() {
         # check reference genome
         if [[ ! -e ${installdir}/../reference/IRGSP-1.0_genome.dict ]]; then
                 echo "Reference genome not found in standard directory ${installdir}/../reference."
-		echo "Check whether you should still run xsetupReference or specify a non-standard"
-		echo "location with the -r option when running generatevcf." >&2
+		echo "Check whether you should still need to run xsetupReference or specify a non-standard"
+		echo "location with the -r option when running generate-data script." >&2
                 exit 1
         fi
 
@@ -53,4 +55,4 @@ function check_prereq() {
 
 installdir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-check_prereq
+check-prereq

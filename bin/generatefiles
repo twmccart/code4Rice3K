@@ -181,6 +181,7 @@ cd ${workingdir}
 
 # Creating an interval list for gene coordinates from the gff file
 # SNPs will be called only for those intervals
+# This should be good for both "gene" and "pseudogene" 
 awk ' !/^#/ { if($3 ~ "gene") print } ' ${gff}/IRGSP-1.0.gff3 | awk ' { print $1 ":" $4 "-" $5 } ' > intervals.list
 
 echo "$gatk ${haplotypecallerOptions} -R ${reference}/IRGSP-1.0_genome.fasta -I $bamfiledir/${cultivar}.realigned.bam -O ${outputdir}/gvcffiles/${cultivar}.g.vcf.gz"

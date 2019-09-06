@@ -1,0 +1,370 @@
+#!/bin/bash
+
+## This script takes as its input argument the accession of a cultivar from the
+## 3K Rice Genome project and produces a VCF file containing all of the called
+## sites from that cultivar. It also produces VCF files for each chromosome of
+## the cultivar, with indels, Multiple Nucleotide Polymorphisms, and uncalled or
+## heterozygous sites removed.
+
+shopt -s extglob
+
+# Set the install directory (the below assumes that the code4Rice3K scripts
+# are in the same directory as the code4Rice3K.conf file):
+#
+installdir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+configfile=${installdir}/code4Rice3K.conf
+reference=${installdir}/../reference
+workingdir="$( pwd )"
+outputdir=${workingdir}
+
+
+# Default option settings:
+#
+
+
+# Setting up which steps in the workflow to run (Default: all)
+#
+declare -a steps2run
+steps2run=(step1 step2 step3 step4)
+startfromstep=""
+stopatstep=""
+runonlystep=""
+
+
+# Help menu
+function usage() {
+	echo "
+		Code4Rice3K Help Section:
+		=========================
+
+		Usage: $0 -c <configfile> -i <list_of_cultivar_names> -o <path> --nt <data_threads>
+		Example: $0 -c ~/Home/MyFiles/myconfigfile.conf -i sample-1 -o ~/Downloads/ --nt 6
+		
+		1) Mandatory options:
+		-i|--inputlist <string>		:	The list with the chosen rice cultivar
+
+		2) Optional setings:
+		-c|--configfile <path>		:	This is the config file for code4Rice3K workflow
+		-r|--reference <path>		:	location of reference genome
+		-o|--outputdir <path>		:	Directory path for the output files
+		--nt <int>			:	The number of data threads used by GATK (6-24 is recommended)
+		--startfromstep <string>	:	Indicate the starting step, must be between step1-step4 (see below) 
+		--stopatstep <string>		:	Indicate the last step, must be between step1-step4 (see below)
+		--runonlystep <string>		:	Indicate a single step to run, e.g. step1 or step3 (see below)
+
+		-h|--help			:	Disply this help message
+
+		code4Rice3K workflow can be run entirely or only part of the workflow can run.
+		Below are the possible steps that can chosen for the "generatevcf" script:
+
+		step 1 downloads the .bam file
+		step 2 generates .gvcf file .bam, ATTN: To skip to this step, previous steps must have run successfully
+		step 3 generates .vcf file from .gvcf, ATTN: To skip to this step, previous steps must have run successfully
+		step 4 generates .vcf file for each chromosome, ATTN: To skip to this step, previous steps must have run successfully
+	"
+}
+
+if [ -z "$*" ]; then usage ; exit 1 ; fi
+
+
+function readconfigfile {
+if [ ! -e "$1" ] ; then
+	echo ""
+	echo "Fatal error: code4Rice3K config file $1 does not exist. Please check"
+	exit 1
+fi
+gatk=`grep '^gatk=' "$1" | awk -F"=" '{print $2}'` 
+genotypegvcfsOptions=`grep '^genotypegvcfsOptions=' "$1" | awk -F"=" '{print $2}'` 
+genomicsdbimportOptions=`grep '^genomicsdbimportOptions=' "$1" | awk -F"=" '{print $2}'`
+selectvariantsOptions=`grep '^selectvariantsOptions=' "$1" | awk -F="=" '${print $2}'`
+}
+
+function merge_chromosome() {
+        chromosome=$1
+        shift
+        cultivarlist=("${@}")
+        cultivarlist=("${cultivarlist[@]/%/.${chromosome}.vcf.gz}")
+        echo "Now running: vcf-merge ${cultivarlist[@]} > ../mergedchromosomefiles/${chromosome}.merge.vcf"
+        vcf-merge ${cultivarlist[@]} > ../mergedchromosomefiles/${chromosome}.merge.vcf
+        # The awk command filters any Multiple Nucleotide Polymorphisms, and any sites that for some reason  are called as '<NON_REF>'
+        < ../mergedchromosomefiles/${chromosome}.merge.vcf bcftools view --exclude-uncalled --exclude-types 'indels' --min-ac 2 --max-af 0.99 --genotype ^miss -O v | awk ' /^#/ {print} length($4) == 1 && ( ($5 != "<NON_REF>") || ($0 !~ /1\/1/) ) && ( ($5 !~ /^[ACGT],<NON_REF>/) || ($0 !~ /2\/2/) ) && ( ($5 !~ /^[ATCG],[ATCG],<NON_REF>/) || ($0 !~ /3\/3/) ) && ( ($5 !~ /^[ACGT],[ATCG],[ATCG],<NON_REF>/) || ($0 !~ /4\/4/) ){print} ' > ../mergedchromosomefiles/${chromosome}.merge.cleaned.vcf
+        bgzip ../mergedchromosomefiles/${chromosome}.merge.cleaned.vcf
+        tabix ../mergedchromosomefiles/${chromosome}.merge.cleaned.vcf.gz
+}
+
+# Parsing command line arguments:
+OPTIONS=`getopt -o c:r:i:d:l:o:p:h --long configfile:,reference:,inputlist:,outfile:,outputdir:,database:,interval:,startfromstep:,stopatstep:,runonlystep:,help -n 'code4Rice3K error' -- "$@"` 
+if [ $? != 0 ] ; then echo " " ; echo "Could not parse options (see above) ..." >&2 ; usage ; exit 1 ; fi
+
+eval set -- "$OPTIONS"
+
+while true ; do
+	case "$1" in
+		-c|--configfile)
+			case "$2" in
+				-*) echo "Please provide a code4Rice3K configfile when using -c"; usage; exit 1 ;;
+				*) configfile=$2 ; shift 2 ;;
+			esac ;;
+
+		-r|--reference)
+			case "$2" in
+				-*) echo "Please provide the location of the reference genome directory when using -r"; usage; exit 1 ;;
+				*) reference=$2 ; shift 2 ;;
+			esac ;;
+
+		-i|--inputlist)
+			case "$2" in
+				-*) echo "Please provide a valid cultivar name when using -i"; usage; exit 1 ;;
+				*) inputfile=$2 ; filename=${inputfile##*/} ; readarray -t cultivarlist < $inputfile ; shift 2 ;;
+			esac ;;
+
+		-o|--outfile)
+			case "$2" in
+				-*) echo "Please provide a name for output file when using -o"; usage; exit 1 ;;
+				*) outfile=$2 ; shift 2 ;;
+			esac ;;
+
+		-d|--database)
+			case "$2" in
+				-*) echo "Please provide a name for output file when using -o"; usage; exit 1 ;;
+				*) database=$2 ; shift 2 ;;
+			esac ;;
+
+		-l|--interval)
+			case "$2" in
+				-*) echo "Please provide a name for output file when using -o"; usage; exit 1 ;;
+				*) interval=$2 ; shift 2 ;;
+			esac ;;
+
+		-p|--outputdir)
+			case "$2" in
+				-*) echo "Please designate an output directory when using -p"; usage; exit 1 ;;
+				*) outputdir=$2 ; shift 2 ;;
+			esac ;;
+
+		--startfromstep)
+			case "$2" in
+				-*) echo "Please designate the code4Rice3K step from which to start"; usage; exit 1 ;;
+				*) startfromstep=$2 ; shift 2 ;;
+			esac ;;
+
+		--stopatstep)
+			case "$2" in
+				-*) echo "Please designate the last codeRice3K step to execute"; usage; exit 1 ;;
+				*) stopatstep=$2 ; shift 2 ;;
+			esac ;;
+
+		--runonlystep)
+			case "$2" in
+				-*) echo "Please designate the code4Rice3K step to execute"; usage; exit 1 ;;
+				*) runonlystep=$2 ; shift 2 ;;
+			esac ;;
+
+		-h|--help)
+			usage; exit 1 ;;
+
+		--) shift ; break ;;
+
+		*) echo "Unknown option or error" ; usage; exit 1 ;;
+	esac
+done
+
+readconfigfile $configfile
+
+# Control which step to run:
+if [[ $startfromstep != '' ]] ; then
+	i=-1
+	for step in ${steps2run[@]} ; do
+		((++i))
+		if [[ $step != $startfromstep ]] ; then unset steps2run[$i] ; else break ; fi
+	done
+fi
+
+unsetflag=0
+if [[ $stopatstep != '' ]] ; then
+	for step in ${steps2run[@]} ; do
+		((++i))
+		if [[ $step == $stopatstep ]] ; then unsetflag=1 ; ((--i))
+		else  if [[ $unsetflag == 1 ]] ; then unset steps2run[$i] ; fi ; fi
+	done
+fi
+
+if [[ $runonlystep != '' ]] ; then
+	steps2run=($runonlystep)
+fi 
+
+
+# Step 0
+#
+echo ""
+echo "=============================================================================="
+echo " Setting up workflow ..."
+echo "=============================================================================="
+echo ""
+
+runstep1=0
+runstep2=0
+runstep3=0
+runstep4=0
+for step in ${steps2run[@]} ; do
+	if [[ $step == "step1" ]] ; then runstep1=1 ; fi
+	if [[ $step == "step2" ]] ; then runstep2=1 ; fi
+	if [[ $step == "step3" ]] ; then runstep3=1 ; fi
+	if [[ $step == "step4" ]] ; then runstep4=1 ; fi
+done
+
+if [ ! -d "$outputdir" ] ; then
+        echo ""
+        echo "... new output directory $outputdir will be created in your working directory."
+	mkdir $outputdir
+fi
+
+cd $outputdir
+mkdir -p vcffiles vcffiles3 splitchromosomefiles mergedchromosomefiles alignmentfiles temp genomicsdatabases
+
+cd ${workingdir}
+# Creating a genomic dictionary for the reference file
+if [[ ! -e ${reference}/IRGSP-1.0_genome.dict ]]; then
+	$gatk CreateSequenceDictionary R=${reference}/IRGSP-1.0_genome.fasta
+fi
+
+
+# Step 1
+if [[ $runstep1 == 1 ]]; then
+        echo ""
+        echo "=============================================================================="
+        echo "Step 1 Creating genomic database for all GVCF files ..."
+        echo "=============================================================================="
+        echo ""
+
+	cd ${workingdir}
+
+	mkdir -p ${outputdir}/genomicsdatabases/${database}-dir
+
+	# modifying cultivar list names
+	cultivarpath=( "${cultivarlist[@]/%/.g.vcf.gz}" )
+	cultivarpath=( "${cultivarpath[@]/#/${outputdir}/gvcffiles/}" )
+	cultivarmap=`paste <(printf "%s\n" "${cultivarlist[@]}") <(printf "%s\n" "${cultivarpath[@]}")`
+	echo "${cultivarmap}" > ${workingdir}/cultivars.sample_map
+
+	echo "$gatk ${genomicsdbimportOptions} -R ${reference}/IRGSP-1.0_genome.fasta -V ${outputdir}/gvcffiles/${cultivarlist[@]} -O ${outputdir}/vcffiles/${outfile}.vcf.gz"
+
+	$gatk ${genomicsdbimportOptions} -R ${reference}/IRGSP-1.0_genome.fasta --sample-name-map ${workingdir}/cultivars.sample_map --genomicsdb-workspace-path ${outputdir}/genomicsdatabases/${database}-dir/${database} -L ${interval} --tmp-dir=${workingdir}/Temp
+
+	echo "Genomic database created"
+	echo ""
+fi
+
+
+# Step 2
+if [ $runstep2 == 1 ] ; then
+	echo ""
+	echo "=============================================================================="
+	echo "Step 2 Generating VCF file ..."
+	echo "=============================================================================="
+	echo ""
+
+	cd ${workingdir}
+
+	#echo "$gatk ${genotypegvcfsOptions} -R ${reference}/IRGSP-1.0_genome.fasta -V ${outputdir}/vcffiles/${cultivarlist[@]} -O ${outputdir}/vcffiles/${outfile}.vcf.gz"
+
+	$gatk ${genotypegvcfsOptions} -R ${reference}/IRGSP-1.0_genome.fasta -V gendb://${outputdir}/genomicsdatabases/${database}-dir/${database} -O ${outputdir}/vcffiles/${outfile}.vcf.gz --tmp-dir=${workingdir}/temp
+
+	echo "VCF file created"
+	echo ""
+fi
+
+# Step 3
+if [ $runstep3 == 1 ] ; then
+	echo ""
+	echo "=============================================================================="
+	echo "Step 3 Filteration step to remove false positive calls ..."
+	echo "=============================================================================="
+	echo ""
+
+	cd ${outputdir}
+
+
+	wait
+
+	tabix -p vcf ${outfile}.noindels_nohets_nomnps.vcf.gz &
+
+        #done
+        wait
+
+	echo "Splitting and cleaning is done"
+	echo ""
+fi
+
+# Step 4
+if [[ $runstep4 == 1 ]]; then
+        echo ""
+        echo "=============================================================================="
+        echo "Step 4 Subsetting data to generate one file per sample ..."
+        echo "=============================================================================="
+        echo ""
+
+	cd ${workingdir}
+
+	# modifying cultivar list names
+	cultivarlist=( "${cultivarlist[@]/%/.g.vcf.gz}" )
+	cultivarlist=( "${cultivarlist[@]/#/-V ${outputdir}/vcffiles/}" )
+
+	#echo "$gatk ${genotypegvcfsOptions} -R ${reference}/IRGSP-1.0_genome.fasta -V ${outputdir}/vcffiles/${cultivarlist[@]} -o ${outputdir}/vcffiles/${outfile}.vcf.gz"
+
+	$gatk ${selectvariantsOptions} -R ${reference}/IRGSP-1.0_genome.fasta -V ${outputdir}/vcffiles/${outfile}.vcf.gz --sample-name ${cultivar} -O ${outputdir}/vcffiles/${sn}.vcf.gz --tmp-dir=${workingdir}/temp
+
+	echo "VCF files created"
+	echo ""
+fi
+
+
+# Step 5
+if [[ $runstep5 == 1 ]]; then
+        echo ""
+        echo "=============================================================================="
+        echo "Step 5 Creating multi consensus sequence from vcf files ..."
+        echo "=============================================================================="
+        echo ""
+
+        cd ${workingdir}
+        cd ${outputdir}/vcffiles/
+	
+	for name in ${names[@]}; do
+		# First we need to remove missing sites and pick only one possible ALT genotype:
+		zcat ${name}.vcf.gz | awk ' !/^#/ { gsub(/\*|\,/, "", $5)1 } OFS="\t" ' | awk ' !/^#/ { gsub(/^[ACGT][ACGT]/, substr($%,1,1), $5)1 } OFS="\t" ' | bgzip -c > tmp && mv tmp ${name}.vcf.gz; tabix -p vcf ${name}.vcf.gz; 
+		wait
+
+		# Generate fasta file from vcf
+		cat ${reference}/ref-${chr}.fasta | vcf-consensus ${name}.vcf.gz > ../${alignmentfiles}/${name}.fasta;
+
+		# Check for sequence length 
+		var1=`wc -c ${reference}/ref-${chr}.fasta | awk '{print $1}'`
+		var2=`wc -c ${outputdir}/alignmentfiles/${name}.fasta | awk '{print $1}'`
+
+		if [ ! $var1 = $var2 ]; then
+			echo ""
+			echo "WARNING: Consensus sequence length for ${name} does not equal that of the reference ${chr}.fasta. Script will now continue but take caution with downstream analysis!"
+			echo ""
+		fi ;
+
+		# Rename every generated sequence with the cultivar name
+		sed -i "0,/^>.*/{s/^>.*/>${name}/}" ../alignmentfiles/${name}.fasta 
+		wait ;
+	done
+
+	# Concatenating all sequences into one fasta file
+	cd ${outputdir}/alignmentfiles/
+	cat ${name}.fasta >> ${outfile}.fasta ;
+
+	echo "Fasta file created"
+	echo ""
+fi
+
+echo ""
+echo "=============================================================================="
+echo " Finished generating files"
+echo "=============================================================================="
+echo ""
+
+exit
